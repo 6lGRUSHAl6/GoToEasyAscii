@@ -1,0 +1,9 @@
+ascii
+ascii.exe
+*.exe
+/bin/
+/dist/
+go.work
+*.log
+.vscode/
+.idea/
