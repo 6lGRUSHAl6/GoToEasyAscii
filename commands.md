@@ -20,6 +20,11 @@ go run ascii.go [flags] <путь_к_изображению>
 go build -o ascii ascii.go
 ./ascii [flags] <путь_к_изображению>
 ```
+для windows
+
+```
+go build -o ascii.exe ascii.go
+```
 
 ---
 

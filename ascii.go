@@ -19,9 +19,15 @@ import (
 // рампа Пола Бурка
 const bourkeRampLightToDark = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$"
 
-const darkBgRamp = bourkeRampLightToDark
+const shortRampLightToDark = " .:-=+*#%@"
 
-var lightBgRamp = reverseString(darkBgRamp)
+const detailedRampMinWidth = 150
+
+const darkBgRampDetailed = bourkeRampLightToDark
+const darkBgRampShort = shortRampLightToDark
+
+var lightBgRampDetailed = reverseString(darkBgRampDetailed)
+var lightBgRampShort = reverseString(darkBgRampShort)
 
 const defaultTargetWidth = 100
 
@@ -30,12 +36,12 @@ func main() {
 	lightFlag := flag.Bool("light", false, "принудительно рампу для светлого фона")
 	darkFlag := flag.Bool("dark", false, "принудительно рампу для тёмного фона")
 	widthFlag := flag.Int("width", defaultTargetWidth, "ширина выходного ASCII-арта в символах")
-	workersFlag := flag.Int("workers", runtime.NumCPU(), "количество параллельных воркеров (по умолчанию число CPU)")
+	rampFlag := flag.String("ramp", "auto", "набор символов: auto | short (10 символов) | detailed (70 символов)")
 	flag.Parse()
 
 	args := flag.Args()
 	if len(args) < 1 {
-		fmt.Println("Использование: go run ascii.go [-color] [-light|-dark] [-width N] [-workers N] <путь_к_картинке>")
+		fmt.Println("Использование: go run ascii.go [-color] [-light|-dark] [-width N] [-ramp auto|short|detailed] <путь_к_картинке>")
 		return
 	}
 
@@ -78,10 +84,10 @@ func main() {
 	if scaleY < 1 {
 		scaleY = 1
 	}
-	cols := bounds.Dx() / scaleX
 
-	asciiRamp := chooseRamp(*lightFlag, *darkFlag)
+	asciiRamp := chooseRamp(*lightFlag, *darkFlag, *rampFlag, targetWidth)
 	rampLen := len(asciiRamp)
+
 	ansiCache := newAnsiCache()
 
 	var rowYs []int
@@ -89,12 +95,13 @@ func main() {
 		rowYs = append(rowYs, y)
 	}
 	results := make([]string, len(rowYs))
-	numWorkers := *workersFlag
-	if numWorkers < 1 {
-		numWorkers = 1
-	}
+
+	numWorkers := runtime.NumCPU()
 	if numWorkers > len(rowYs) {
 		numWorkers = len(rowYs)
+	}
+	if numWorkers < 1 {
+		numWorkers = 1
 	}
 
 	var wg sync.WaitGroup
@@ -114,11 +121,8 @@ func main() {
 		go func(start, end int) {
 			defer wg.Done()
 			var sb strings.Builder
-			estLen := cols
-			if *colorFlag {
-				estLen *= 20
-			}
-			sb.Grow(estLen + 10) //небольшой запас
+			estLen := (bounds.Dx()/scaleX + 1) * 20
+			sb.Grow(estLen)
 
 			for i := start; i < end; i++ {
 				y := rowYs[i]
@@ -132,6 +136,7 @@ func main() {
 						idx = rampLen - 1
 					}
 					ch := asciiRamp[idx]
+
 					if *colorFlag {
 						sb.WriteString(ansiCache.get(r, g, b))
 						sb.WriteByte(ch)
@@ -170,27 +175,57 @@ func main() {
 	}
 }
 
-func chooseRamp(lightFlag, darkFlag bool) string {
+func chooseRamp(lightFlag, darkFlag bool, rampMode string, width int) string {
+	useDetailed := width >= detailedRampMinWidth
+	switch strings.ToLower(rampMode) {
+	case "short":
+		useDetailed = false
+	case "detailed":
+		useDetailed = true
+	}
+
+	bg := resolveBackground(lightFlag, darkFlag)
+
+	if useDetailed {
+		if bg == bgLight {
+			return lightBgRampDetailed
+		}
+		return darkBgRampDetailed
+	}
+	if bg == bgLight {
+		return lightBgRampShort
+	}
+	return darkBgRampShort
+}
+
+type background int
+
+const (
+	bgDark background = iota
+	bgLight
+)
+
+func resolveBackground(lightFlag, darkFlag bool) background {
 	if lightFlag {
-		return lightBgRamp
+		return bgLight
 	}
 	if darkFlag {
-		return darkBgRamp
+		return bgDark
 	}
 
 	if val := os.Getenv("COLORFGBG"); val != "" {
 		parts := strings.Split(val, ";")
 		if len(parts) > 0 {
-			bg, err := strconv.Atoi(parts[len(parts)-1])
+			bgCode, err := strconv.Atoi(parts[len(parts)-1])
 			if err == nil {
-				if bg == 7 || bg >= 9 {
-					return lightBgRamp
+				if bgCode == 7 || bgCode >= 9 {
+					return bgLight
 				}
-				return darkBgRamp
+				return bgDark
 			}
 		}
 	}
-	return darkBgRamp //по умолчанию тёмный фон
+	return bgDark
 }
 
 func reverseString(s string) string {
@@ -220,7 +255,6 @@ func (a *ansiCache) get(r, g, b uint8) string {
 	}
 	a.mu.RUnlock()
 
-	//сборка строки
 	var sb strings.Builder
 	sb.WriteString("\x1b[38;2;")
 	sb.WriteString(strconv.Itoa(int(r)))
@@ -230,6 +264,7 @@ func (a *ansiCache) get(r, g, b uint8) string {
 	sb.WriteString(strconv.Itoa(int(b)))
 	sb.WriteByte('m')
 	v := sb.String()
+
 	a.mu.Lock()
 	if existing, ok := a.cache[key]; ok {
 		a.mu.Unlock()
@@ -270,6 +305,7 @@ func averageColorAndBrightness(img *image.RGBA, x, y, w, h int) (r, g, b uint8, 
 	avgR := sumR / float64(count)
 	avgG := sumG / float64(count)
 	avgB := sumB / float64(count)
+
 	r = uint8(avgR)
 	g = uint8(avgG)
 	b = uint8(avgB)
