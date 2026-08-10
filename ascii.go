@@ -21,7 +21,7 @@ const bourkeRampLightToDark = " .'`^\",:;Il!i><~+_-?][}{1)(|\\/tfjrxnuvczXYUJCLQ
 
 const shortRampLightToDark = " .:-=+*#%@"
 
-const detailedRampMinWidth = 150
+const detailedRampMinWidth = 75
 
 const darkBgRampDetailed = bourkeRampLightToDark
 const darkBgRampShort = shortRampLightToDark
